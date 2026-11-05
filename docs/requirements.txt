@@ -1,0 +1,9 @@
+ebsdsim==0.2.4
+kikuchipy==0.13.1
+matplotlib==3.11.2
+numpy==2.4.6
+orix==0.15.0
+pillow==13.0.0
+pyebsdindex==0.3.10.1
+scipy==1.17.1
+tifffile==2026.3.3

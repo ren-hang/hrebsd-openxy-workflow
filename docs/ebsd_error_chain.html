@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EBSD Error Chain</title>
+<style>
+:root{--bg:#fafaf7;--panel:#fff;--ink:#1d2430;--mute:#5b6676;--line:#d9dde3;--acc:#1f5fbf;--bad:#c4452d;--ok:#2a8a5a;--warn:#b9811a;--beam:#d4a017;--det:#7a8699}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#13171d;--panel:#1b212a;--ink:#e6e9ee;--mute:#9aa5b5;--line:#2e3744;--acc:#6aa3ff;--bad:#ff7a63;--ok:#5fd09b;--warn:#e3b04b;--beam:#f0c040;--det:#8795aa}}
+:root[data-theme="dark"]{--bg:#13171d;--panel:#1b212a;--ink:#e6e9ee;--mute:#9aa5b5;--line:#2e3744;--acc:#6aa3ff;--bad:#ff7a63;--ok:#5fd09b;--warn:#e3b04b;--beam:#f0c040;--det:#8795aa}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,Segoe UI,Roboto,sans-serif}
+main{max-width:1080px;margin:0 auto;padding:24px 16px 56px}
+h1{font-size:24px;margin:0 0 4px}h2{font-size:18px;margin:32px 0 8px}
+p.lead{color:var(--mute);margin:0 0 16px;max-width:75ch}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px}
+.grid{display:grid;gap:12px}
+.chain{grid-template-columns:repeat(auto-fit,minmax(200px,1fr))}
+.step{position:relative}
+.step b{display:block;font-size:13px;color:var(--acc);text-transform:uppercase;letter-spacing:.04em}
+.step h3{margin:2px 0 6px;font-size:16px}
+.step ul{margin:6px 0 0;padding-left:18px;color:var(--mute);font-size:13.5px}
+.tag{display:inline-block;font-size:12px;border-radius:99px;padding:1px 8px;border:1px solid var(--line);color:var(--mute);margin-top:6px}
+.tag.bad{color:var(--bad);border-color:var(--bad)}.tag.ok{color:var(--ok);border-color:var(--ok)}.tag.warn{color:var(--warn);border-color:var(--warn)}
+.two{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+@media (max-width:760px){.two{grid-template-columns:1fr}}
+svg{width:100%;height:auto;display:block}
+.ctl{display:grid;grid-template-columns:90px 1fr 70px;gap:6px 10px;align-items:center;font-size:13.5px;margin:4px 0}
+.ctl output{font-variant-numeric:tabular-nums;text-align:right;color:var(--mute)}
+input[type=range]{width:100%;accent-color:var(--acc)}
+.read{font-size:13.5px;margin-top:8px;color:var(--mute)}.read b{color:var(--ink)}
+button{font:inherit;background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:4px 10px;cursor:pointer}
+table{border-collapse:collapse;width:100%;font-size:13.5px}th,td{border-bottom:1px solid var(--line);padding:6px 8px;text-align:left;vertical-align:top}
+th{color:var(--mute);font-weight:600}
+.src{color:var(--mute);font-size:12.5px;margin-top:6px}
+</style>
+</head>
+<body>
+<main>
+<div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap">
+  <h1>From measurement to orientation: where the errors enter</h1>
+  <button id="theme" type="button">Toggle theme</button>
+</div>
+<p class="lead">EBSD indexing turns band positions on a flat screen into a crystal orientation. That step is only as good as the geometry assumed between the beam spot, the sample and the screen, and the pattern centre (PC) is the number that ties them together. Schematic and first-order estimates for our Thermo Pathfinder setup (70&deg; sample tilt, 20 kV); measured numbers come from the validation runs in NOTES.md.</p>
+
+<h2>1. The chain</h2>
+<div class="grid chain">
+  <div class="card step"><b>1 Sample</b><h3>Mounting and tilt</h3>
+    <ul><li>Tilt 70&deg; (stage reading)</li><li>Azimuth of the sample about its normal</li><li>Surface height &rarr; working distance</li></ul><span class="tag warn">azimuth not tracked</span></div>
+  <div class="card step"><b>2 Geometry</b><h3>Pattern centre and camera</h3>
+    <ul><li>PC = where the beam spot projects on the screen (x*, y*) and the spot&ndash;screen distance (z*)</li><li>Camera elevation 11&deg; (instrument error)</li></ul><span class="tag bad">largest systematic source</span></div>
+  <div class="card step"><b>3 Image</b><h3>Pattern as recorded</h3>
+    <ul><li>Binning (here 372&times;232 or 184&times;116)</li><li>Background, contrast, noise</li><li>Flips / transposes in the export</li></ul><span class="tag warn">filter choice matters</span></div>
+  <div class="card step"><b>4 Bands</b><h3>Detection (Hough)</h3>
+    <ul><li>Band centre accuracy ~0.1&ndash;0.5 px</li><li>Band count and lookup list (Si not in FCC list)</li></ul><span class="tag ok">~0.1&ndash;0.5&deg; if geometry is right</span></div>
+  <div class="card step"><b>5 Indexing</b><h3>Orientation (Euler)</h3>
+    <ul><li>Convention (Bunge ZXZ, g vs g<sup>T</sup>)</li><li>Reference frame of the export</li><li>Deba correction: 11.04&deg; about X and a 90&deg; azimuth</li></ul><span class="tag bad">10&ndash;50&deg; if frame is wrong</span></div>
+  <div class="card step"><b>6 HR-EBSD</b><h3>Pattern shifts &rarr; F</h3>
+    <ul><li>Uses the same PC and geometry</li><li>Reference pattern noise, ROI, filter</li></ul><span class="tag warn">1e-3 to 1e-4</span></div>
+</div>
+
+<h2>2. Side view: why the pattern centre matters</h2>
+<div class="grid two">
+  <div class="card">
+    <svg id="side" viewBox="0 0 520 370" role="img" aria-label="Side view of beam, tilted sample and detector screen"></svg>
+    <div class="read">The PC is the point on the screen closest to the beam spot on the sample. Moving the stage or changing the working distance moves it; a camera that is tilted (elevation) changes the angles of the whole screen. Only the combination matters for the bands.</div>
+  </div>
+  <div class="card">
+    <div class="ctl"><label for="sx">PC x*</label><input id="sx" type="range" min="0.35" max="0.65" step="0.0005" value="0.5105"><output id="ox"></output></div>
+    <div class="ctl"><label for="sy">PC y*</label><input id="sy" type="range" min="0.55" max="0.85" step="0.001" value="0.706"><output id="oy"></output></div>
+    <div class="ctl"><label for="sz">PC z*</label><input id="sz" type="range" min="0.80" max="1.25" step="0.0005" value="1.0175"><output id="oz"></output></div>
+    <div class="ctl"><label for="se">Elevation</label><input id="se" type="range" min="0" max="20" step="0.5" value="11"><output id="oe"></output></div>
+    <div class="read">x*, y*, z* are fractions of the pattern width (EDAX/TSL convention, used by OpenXY and PyEBSDIndex). Defaults are our Pt(2) values (Pathfinder X = 16.22, Y = 5.88, L = 20.35 mm, converted).</div>
+    <div class="read" id="calc"></div>
+  </div>
+</div>
+
+<h2>3. What a wrong pattern centre does to the bands</h2>
+<div class="grid two">
+  <div class="card">
+    <svg id="pat" viewBox="0 0 520 340" role="img" aria-label="Band positions with the true and an assumed pattern centre"></svg>
+    <div class="read"><span style="color:var(--acc)"><b>solid</b></span> = bands where the true PC puts them. <span style="color:var(--bad)"><b>dashed</b></span> = the same orientation as seen by an indexer that assumes the PC in section 2. The two sets of lines should coincide; any gap is an error the indexer turns into a wrong orientation (or, in HR-EBSD, an apparent strain).</div>
+  </div>
+  <div class="card">
+    <div class="ctl"><label>True PC</label><span style="grid-column:2/4;color:var(--mute)">fixed: 0.5105, 0.706, 1.0175</span></div>
+    <div class="read" id="calc2"></div>
+    <p class="read" style="margin-top:12px"><b>Rules of thumb (first order):</b><br>
+    &bull; x*, y* error &delta; &asymp; a rigid rotation of about &delta;/z* radians (0.01 &rarr; ~0.6&deg;). It looks like a real misorientation.<br>
+    &bull; z* error &Delta;z/z &asymp; a uniform magnification of all bands; it mostly acts like a dilatation (volumetric) and only weakly on the deviatoric part.<br>
+    &bull; Camera elevation error &Delta;&epsilon; rotates the whole frame about the screen's horizontal axis by roughly &Delta;&epsilon;.<br>
+    &bull; Deba's 11.04&deg; correction is this last one: a pure rotation about specimen X, left-multiplied.</p>
+    <button id="reset" type="button">Reset to true PC</button>
+  </div>
+</div>
+
+<h2>4. What we measured on this setup</h2>
+<div class="card" style="overflow-x:auto">
+<table>
+<thead><tr><th>Source</th><th>Test</th><th>Result</th></tr></thead>
+<tbody>
+<tr><td>Camera elevation</td><td>Synthetic Ni, true elevation 10&deg;; strain error vs elevation used in OpenXY</td><td>0&deg;: 1.6e-3 &nbsp; 5&deg;: 9.7e-4 &nbsp; 10&deg;: 3.8e-4 &nbsp; 11&deg;: 3.3e-4 &nbsp; 15&deg;: 4.4e-4</td></tr>
+<tr><td>Orientation error</td><td>Input orientation rotated by &plusmn;10&deg;</td><td>strain error 1.4e-3 and 1.8e-3 (about 1.4e-3 per degree leaks into strain)</td></tr>
+<tr><td>Pattern centre choice</td><td>Brady (Pathfinder X,Y,L) vs kikuchipy NCC-refined PC, real Pt</td><td>PCs differ by &lt;~0.03; OpenXY strain changes by &le;1e-4</td></tr>
+<tr><td>Frame convention</td><td>Hough orientation vs .ang, Pt(2) and Pt_Hole(1)</td><td>No correction: 17&ndash;54&deg;. With Rz(90&deg;)&middot;R<sub>corr</sub>: ~1&ndash;2&deg;</td></tr>
+<tr><td>Wrong PC for indexing</td><td>Pt_Hole(1), default PC 15.8/7.9/16.0 vs calibrated</td><td>median error 33&deg; vs 1.5&deg;</td></tr>
+<tr><td>Image filter</td><td>Synthetic noisy patterns, OpenXY</td><td>9/90 px: 1.5e-3 &nbsp; 5/60 or 9/45: ~1e-3 &nbsp; none: 3.5e-3</td></tr>
+</tbody></table>
+<div class="src">Source: NOTES.md &sect;&sect;10&ndash;12. Synthetic numbers use a smooth master pattern, so they are optimistic for real data. Strain values themselves are not interpreted here.</div>
+</div>
+</main>
+
+<script>
+(function(){
+var $=function(i){return document.getElementById(i)};
+var TRUE={x:0.5105,y:0.706,z:1.0175,e:11};
+var W=1, H=232/372;
+var root=document.documentElement, tb=$('theme');
+tb.onclick=function(){var d=getComputedStyle(root).getPropertyValue('--bg').trim()==='#13171d';root.setAttribute('data-theme',d?'light':'dark')};
+
+function el(n,a,p){var e=document.createElementNS('http://www.w3.org/2000/svg',n);for(var k in a)e.setAttribute(k,a[k]);if(p)p.appendChild(e);return e}
+function txt(p,x,y,s,c,anchor){var t=el('text',{x:x,y:y,fill:c||'var(--mute)','font-size':12,'text-anchor':anchor||'start'},p);t.textContent=s;return t}
+
+/* ---------- side view ---------- */
+function side(){
+  var s=$('side');s.innerHTML='';
+  var g=el('g',{},s);
+  var el_=(+$('se').value)*Math.PI/180;
+  var ox=170,oy=210; // beam spot
+  var tl=70*Math.PI/180;
+  var nrm={x:Math.sin(tl),y:-Math.cos(tl)};   // surface normal points towards the screen (svg y is down)
+  var tg={x:Math.cos(tl),y:Math.sin(tl)};     // tangent: steep, running up-left / down-right
+  el('line',{x1:ox,y1:20,x2:ox,y2:oy,stroke:'var(--beam)','stroke-width':3},g);
+  txt(g,ox+8,40,'electron beam','var(--beam)');
+  var p1={x:ox-tg.x*150,y:oy-tg.y*150},p2={x:ox+tg.x*100,y:oy+tg.y*100};
+  // sample body on the side opposite to the normal (reflection / backscatter geometry)
+  var bx=-nrm.x*90,by=-nrm.y*90;
+  el('polygon',{points:[p1.x,p1.y,p2.x,p2.y,p2.x+bx,p2.y+by,p1.x+bx,p1.y+by].join(' '),fill:'var(--line)',opacity:.7},g);
+  el('line',{x1:p1.x,y1:p1.y,x2:p2.x,y2:p2.y,stroke:'var(--ink)','stroke-width':4,'stroke-linecap':'round'},g);
+  txt(g,p1.x+bx-6,p1.y+by-8,'sample (70° tilt)','var(--ink)');
+  el('line',{x1:ox,y1:oy,x2:ox+nrm.x*60,y2:oy+nrm.y*60,stroke:'var(--mute)','stroke-width':1.5,'stroke-dasharray':'3 3'},g);
+  txt(g,ox+nrm.x*60+6,oy+nrm.y*60-10,'surface normal','var(--mute)');
+  // screen: vertical-ish plane on the right, rotated by camera elevation
+  var D=250; // spot-screen distance in px (z-star scaled)
+  var zs=+$('sz').value, zt=TRUE.z;
+  var dist=D*zs/zt;
+  var cx=ox+dist, cy=oy-40; // screen centre line
+  var rot=el_-TRUE.e*Math.PI/180; // visible only as deviation from nominal elevation
+  var sh=130, sd={x:Math.sin(rot),y:-Math.cos(rot)};
+  var top={x:cx+sd.x*sh,y:cy+sd.y*sh},bot={x:cx-sd.x*sh,y:cy-sd.y*sh};
+  el('line',{x1:top.x,y1:top.y,x2:bot.x,y2:bot.y,stroke:'var(--det)','stroke-width':8,'stroke-linecap':'round'},g);
+  txt(g,cx-40,top.y-6,'phosphor screen','var(--det)');
+  // PC marker on screen
+  var t=(0.706-(+$('sy').value))*2*sh*0.9;
+  var pcx=cx+sd.x*t, pcy=cy+sd.y*t;
+  el('circle',{cx:pcx,cy:pcy,r:6,fill:'var(--bad)'},g);
+  el('line',{x1:ox,y1:oy,x2:pcx,y2:pcy,stroke:'var(--bad)','stroke-width':1.5,'stroke-dasharray':'4 3'},g);
+  txt(g,pcx+10,pcy+4,'PC','var(--bad)');
+  // distance bracket
+  el('line',{x1:ox,y1:oy+50,x2:cx,y2:oy+50,stroke:'var(--mute)','stroke-width':1},g);
+  txt(g,(ox+cx)/2,oy+68,'spot to screen  z* = '+zs.toFixed(3),'var(--mute)','middle');
+  // a ray fan
+  [-60,0,60].forEach(function(o){el('line',{x1:ox,y1:oy,x2:cx+sd.x*o,y2:cy+sd.y*o,stroke:'var(--acc)','stroke-width':1,opacity:.5},g)});
+  txt(g,16,340,'Backscatter (reflection) geometry: the screen sees the surface the beam hits.','var(--mute)');
+  txt(g,16,358,'Not to scale. Screen tilt is relative to the nominal 11°.','var(--mute)');
+}
+
+/* ---------- bands ---------- */
+var NS=(function(){
+  // fixed orientation: rotate a set of low-index plane normals
+  var base=[[1,1,0],[1,-1,0],[1,0,1],[1,0,-1],[0,1,1],[0,1,-1],[1,1,1],[1,-1,1],[-1,1,1],[1,1,-1]];
+  var a=0.35,b=0.8,c=0.2; // fixed Euler-like rotation
+  function Rz(t){return [[Math.cos(t),-Math.sin(t),0],[Math.sin(t),Math.cos(t),0],[0,0,1]]}
+  function Rx(t){return [[1,0,0],[0,Math.cos(t),-Math.sin(t)],[0,Math.sin(t),Math.cos(t)]]}
+  function mm(A,B){return A.map(function(r,i){return [0,1,2].map(function(j){return r[0]*B[0][j]+r[1]*B[1][j]+r[2]*B[2][j]})})}
+  var R=mm(Rz(a),mm(Rx(b),Rz(c)));
+  return base.map(function(v){var n=Math.hypot.apply(null,v);var u=v.map(function(x){return x/n});
+    return [0,1,2].map(function(i){return R[i][0]*u[0]+R[i][1]*u[1]+R[i][2]*u[2]})});
+})();
+// plane normal n in screen coordinates (u right, v down, w into detector). A pixel (u,v) sees direction (u-x0, v-y0, z0).
+// band: n . (u-x0, v-y0, z0) = 0   -> n0 (u-x0) + n1 (v-y0) + n2 z0 = 0
+function lineEnds(n,pc){
+  var pts=[];
+  var k=n[2]*pc.z-n[0]*pc.x-n[1]*pc.y; // n0 u + n1 v + k = 0
+  // intersect with rectangle [0,W]x[0,H]
+  function addU(u){ if(Math.abs(n[1])>1e-9){var v=-(n[0]*u+k)/n[1]; if(v>=-1e-9&&v<=H+1e-9)pts.push([u,v])} }
+  function addV(v){ if(Math.abs(n[0])>1e-9){var u=-(n[1]*v+k)/n[0]; if(u>=-1e-9&&u<=W+1e-9)pts.push([u,v])} }
+  addU(0);addU(W);addV(0);addV(H);
+  if(pts.length<2)return null;
+  // dedupe
+  var out=[pts[0]];for(var i=1;i<pts.length;i++){if(Math.hypot(pts[i][0]-out[0][0],pts[i][1]-out[0][1])>1e-6){out.push(pts[i]);break}}
+  return out.length===2?out:null;
+}
+function bands(){
+  var s=$('pat');s.innerHTML='';
+  var X0=30,Y0=20,SC=460; // svg px per unit width
+  var g=el('g',{},s);
+  el('rect',{x:X0,y:Y0,width:W*SC,height:H*SC,fill:'none',stroke:'var(--line)','stroke-width':1.5},g);
+  var assumed={x:+$('sx').value,y:+$('sy').value,z:+$('sz').value};
+  var tp={x:TRUE.x,y:TRUE.y,z:TRUE.z};
+  var sumd=0,cnt=0;
+  NS.forEach(function(n){
+    var a=lineEnds(n,tp), b=lineEnds(n,assumed);
+    if(a)el('line',{x1:X0+a[0][0]*SC,y1:Y0+a[0][1]*SC,x2:X0+a[1][0]*SC,y2:Y0+a[1][1]*SC,stroke:'var(--acc)','stroke-width':3,'stroke-linecap':'round',opacity:.9},g);
+    if(b)el('line',{x1:X0+b[0][0]*SC,y1:Y0+b[0][1]*SC,x2:X0+b[1][0]*SC,y2:Y0+b[1][1]*SC,stroke:'var(--bad)','stroke-width':1.8,'stroke-dasharray':'6 4'},g);
+    // perpendicular distance between the two lines at mid-point of the true line
+    if(a){var mu=(a[0][0]+a[1][0])/2,mv=(a[0][1]+a[1][1])/2;
+      var k2=n[2]*assumed.z-n[0]*assumed.x-n[1]*assumed.y;
+      var dd=Math.abs(n[0]*mu+n[1]*mv+k2)/Math.hypot(n[0],n[1]);sumd+=dd*dd;cnt++}
+  });
+  // PCs
+  el('circle',{cx:X0+TRUE.x*SC,cy:Y0+TRUE.y*SC*(1/1),r:5,fill:'var(--acc)'},g);
+  el('circle',{cx:X0+assumed.x*SC,cy:Y0+assumed.y*SC,r:5,fill:'none',stroke:'var(--bad)','stroke-width':2},g);
+  txt(g,X0,Y0+H*SC+18,'372 × 232 px pattern; dot = true PC, ring = assumed PC (can lie outside the frame)','var(--mute)');
+  var rms=cnt?Math.sqrt(sumd/cnt)*372:0;
+  return rms;
+}
+
+function update(){
+  var x=+$('sx').value,y=+$('sy').value,z=+$('sz').value,e=+$('se').value;
+  $('ox').textContent=x.toFixed(4);$('oy').textContent=y.toFixed(4);$('oz').textContent=z.toFixed(4);$('oe').textContent=e.toFixed(1)+'°';
+  side();
+  var rms=bands();
+  var dx=x-TRUE.x,dy=y-TRUE.y,dz=z-TRUE.z,de=e-TRUE.e;
+  var rot=Math.atan(Math.hypot(dx,dy)/z)*180/Math.PI;
+  var s='x*,y* error '+Math.hypot(dx,dy).toFixed(3)+' of the width: apparent rotation <b>~'+rot.toFixed(2)+'°</b><br>z* error '+(100*dz/TRUE.z).toFixed(1)+' %: magnification error, mainly dilatation-like, ~'+(Math.abs(dz)/TRUE.z).toExponential(1)+' as a first-order scale<br>elevation error '+de.toFixed(1)+'°: rotation about the screen horizontal of ~<b>'+Math.abs(de).toFixed(1)+'°</b>';
+  $('calc').innerHTML=s;
+  $('calc2').innerHTML='RMS band offset (x*, y*, z* only) <b>'+rms.toFixed(1)+' px</b> on a 372 px wide pattern; elevation is not drawn in this panel. A good Hough fit locates bands to ~0.1&ndash;0.5 px, so an offset of a few px is already larger than the detection error.';
+}
+['sx','sy','sz','se'].forEach(function(i){$(i).addEventListener('input',update)});
+$('reset').onclick=function(){$('sx').value=TRUE.x;$('sy').value=TRUE.y;$('sz').value=TRUE.z;$('se').value=TRUE.e;update()};
+update();
+})();
+</script>
+</body>
+</html>

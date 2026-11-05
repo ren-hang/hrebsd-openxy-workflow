@@ -1,0 +1,11 @@
+# lab data and intermediate results stay out of git (see docs/hrEBSD_workflow.md, "Data organisation")
+inputs/
+work/
+logs/
+Examples/
+__pycache__/
+*.pat
+*.ANG
+*.tif
+*.npz
+*.mat
