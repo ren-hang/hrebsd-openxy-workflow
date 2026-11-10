@@ -174,7 +174,8 @@ Whole-map results through this tool: Pt(6) 88.1% usable, median strain norm 0.31
 - OpenXY gives the deformation gradient F = R·U **relative to a reference pattern inside each grain**, not absolute strain. Strain is only comparable within a grain, and any residual strain already in the reference is invisible.
 - Only the deviatoric part of the strain is measured. The dilatation printed by OpenXY comes from the assumption σ33 = 0.
 - Rotation relative to the reference matters for accuracy: a pattern-centre error leaks into strain in proportion to that rotation (≈ rotation [rad] × δPC / z\*). At the 0.01–0.05° rotations in these maps the effect is below 0.1×10⁻³ (Pt(7) typed vs fitted PC: median 0.04×10⁻³).
-- Points within a few pixels of a grain boundary (overlapping patterns) are unreliable and are flagged; the tool does not try to separate the two patterns.
+- Points within a few pixels of a grain boundary (overlapping patterns) are unreliable and are flagged; the tool does not try to separate the two patterns. Unmixing each pattern against measured interior patterns of the two grains would give a mixing fraction per point (NOTES 15.8); it is not implemented here.
+- The map's physical step may differ from the nominal one. In two 2025 sessions on this instrument (Zn on HOPG, NOTES 15.4) the rows covered 0.83–0.85× the nominal step and the map axes were 86° apart. GND uses the nominal step in both directions, so y-derivative terms would be ~15% low if the hrEBSD sessions behave the same. Check once with a fiducial grid (section 8).
 - The 90° azimuth is empirical. If a new session gives a Hough or kikuchipy check that disagrees with the .ANG, rerun `tools\pat_az_scan.py` (section 8) before trusting any map.
 
 ---
@@ -190,6 +191,8 @@ Whole-map results through this tool: Pt(6) 88.1% usable, median strain norm 0.31
 | GND at coarser effective step | already in `maps.npz` (`gnd_bin2/3/4`); or `tools\gnd_binned.py maps.npz --k 1 2 3 4` for medians per grain. |
 | Large rotations / deformed samples | `tools\remap_full.py` (second pass, F = R1·F2). |
 | Does OpenXY itself recover a known deformation? | `tools\gen_synthetic.py` renders a 10×10 map with known F from a kikuchipy master pattern; `tools\compare_synthetic.py` compares OpenXY's output with the truth. |
+| Is the map's physical step what the software says? / Align an EBSD map with SEM or another map | Map a fiducial grid (TEM grid, FIB marks, indents, deposits), then `tools\register_grid.py --image P.pat --points fid.csv --step 0.27 --out work\reg_NAME`. `fid.csv` has columns `x,y` in µm and an optional `present` 0/1; a few deliberately missing fiducials make the answer unique. It reports the rotation (and any mirror) between the two frames, the pixel size along columns and rows, and the angle between the map axes (NOTES 15.4, 15.6). |
+| A new phase (master pattern) | `ebsdsim` handles hexagonal as well as cubic phases in seconds (NOTES 15.3). For structures with more than one atomic site, version 0.2.4 stores the wrong average Z: check `mp.metadata['cell']['average_atomic_number']`. |
 
 ---
 

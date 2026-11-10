@@ -407,3 +407,162 @@ Caveats: one pattern set, one orientation, Ni master pattern for Pt, azimuth cho
 - 40 development scripts removed from `tools\` and archived in `work\removed_tools_2026-11-05.zip` (sweeps, one-off warp/recovery tests, pei_* Hough variants, kinematic PC fit, block-only remap, old subset/preflight tools). The sections above that cite them describe what they showed; they are no longer runnable from `tools\`. Kept: hrebsd.py, make_pat_subset.py, correct_ang.py, replot_maps.py, run_case.ps1, run_openxy_headless.m (+ headless_shims), pat_az_scan.py, gnd_binned.py, compare_maps.py, make_null_map.py, remap_full.py, map_pc_fit.py, make_pt_master.py, gen_synthetic.py, compare_synthetic.py.
 - OpenXY patches C1/C2 copied to `tools\openxy_patches\`; pinned Python packages in `docs\requirements.txt`.
 - The how-to document is `docs\hrEBSD_workflow.md`.
+
+## 15. General EBSD lessons from the Zn-on-HOPG project (2026-11-10)
+That project is kept separate: code, findings and figures are in the private repo `ren-hang/hopg-zn-orientation`; data and work are in
+`C:\Users\Hang\Projects\HOPG_Zn`. Its data are Elias's SECCM Zn grids on HOPG: Thermo Pathfinder maps of 16 and 18 Apr 2025, 256x170 at
+0.546 um nominal step with 184x116 patterns, and Nov 2024 / Feb 2025 maps with 372x232 patterns. This section keeps what applies to EBSD in
+general. Tools named `HOPG:...` live in that repo. Only `tools\register_grid.py` was added here.
+
+### 15.1 Thermo .pat, beyond 12.6
+- Record 0 is dark in every map seen; leave it out of backgrounds and means.
+- The 8 bytes after each pattern are a per-record counter, not pixel data.
+- The file holds one record more than ncols x nrows.
+- A 256x170 map of 184x116 patterns is 1.86 GB. With `np.memmap` at `25 + k*(pw*ph*2 + 8)`, the mean of every pattern takes ~1 min.
+- That per-pattern brightness map shows surface features (deposits, particles, indents) as dots, so it is the map to register against
+  (15.6).
+
+### 15.2 PC and detector tilt without indexing (`HOPG:tools/hopg_twist_map.py --fit-pc`)
+- Graphite patterns (10x binned, weak) could not be Hough-indexed with PyEBSDIndex.
+- With the orientation family constrained (c along ND, only phi1 free), the PC and the detector tilt were fitted instead. The fit is
+  Nelder-Mead on NCC against ebsdsim simulations, using 8 spread points.
+- The fit reproduced within a session (Nov 2024: X 16.0-16.3, Y 6.7-6.8, L 20.3-20.4 mm, tilt 11.0-11.3 deg). Across sessions it moved
+  (Feb 2025: X 16.8-17.0, Y 5.3-5.9; Apr 2025: 16.0-16.8 / 5.2-5.5 / 20.5-20.6, tilt 11.1-11.7).
+- The acquisition reports showed the default 15.8/7.9/16.0 or inconsistent values (see 12.8).
+- In kikuchipy, sample tilt and detector tilt enter the projection together, as alpha = 90 - sample_tilt + detector_tilt. A fit therefore
+  fixes alpha (~31 deg here), not the two tilts separately. This is the same coupling seen in 12.19, and it matters for 15.4.
+
+### 15.3 ebsdsim for other phases, and an average-Z bug
+- ebsdsim 0.2.4 makes hexagonal master patterns as easily as cubic ones (graphite P6_3/mmc with 2 sites, Zn P6_3/mmc), each in a few
+  seconds on the GPU.
+- Each pattern is a Monte Carlo electron run at the chosen `voltage_kv` and specimen tilt `sigma_deg` (default 70), followed by a
+  Bloch-wave solve.
+- `mp.bin_voltages_kv` and `mp.bin_weights` give the backscattered-electron energy distribution. At 20 kV, the share in the top 1 keV bin is
+  Pt 52% and Zn 31%; light phases contribute many low-energy (deeper, more scattered) electrons. The graphite value (4%) comes from the
+  wrong Z described next.
+- **Bug:** for structures with more than one atomic site, ebsdsim 0.2.4 stores the average Z and A divided by the number of sites
+  (graphite 3.0 / 6.0 instead of 6 / 12.01; the density is right). Single-site phases (Pt, Zn, and in principle Ni, Si) are correct. The
+  Monte Carlo step presumably uses these values, so the energy weighting of multi-site phases is off; band geometry is not affected.
+- Before using a new phase, check `mp.metadata['cell']['average_atomic_number']`. Not yet reported upstream.
+
+### 15.4 The map's physical step is not the nominal one (measured with a fiducial grid; important for GND)
+- Both Apr 2025 sessions were registered to the SECCM deposit grid: 5 um pitch, axes 89.3-90.2 deg apart and scales isotropic within 2%
+  in a 0 deg-tilt SEM image.
+
+| session | pixel along columns | pixel along rows | angle between map axes |
+|---|---|---|---|
+| 16 Apr | 0.553 um (1.01x nominal) | 0.451 um (0.83x) | 86.2 deg |
+| 18 Apr | 0.547 um (1.00x) | 0.464 um (0.85x) | 86.4 deg |
+
+- So the rows, which run along the tilt direction, cover 15-17% less sample than nominal, and the axes are ~3.7 deg from orthogonal.
+- If the scan's tilt correction assumes 70 deg, that row scale corresponds to a surface tilt of ~66 deg. The PC/elevation fits cannot tell
+  (they see only alpha, 15.2), so a sample at ~66 deg with a ~7 deg camera would match the same patterns as 70 + 11 deg. **Not
+  established**; it would also bear on what Deba's 11.04 deg Rcorr represents physically.
+- Consequences for hrEBSD if the same holds for the 2026 sessions:
+  1. OpenXY's GND uses one nominal step for both directions (13.4: `XData(3)-XData(2)`), so terms with y-derivatives would be
+     underestimated by ~15%.
+  2. Map shapes, and grain sizes along y, are stretched ~1.2x.
+  3. Overlaying EBSD maps on SEM images needs a full affine, not a scale factor.
+- **To check:** map one fiducial grid (TEM grid, FIB marks, an SECCM or indent array) in a typical hrEBSD session and run
+  `tools\register_grid.py`; it reports both pixel sizes and the axis angle. If rows come out at 0.83x again, consider a step correction in
+  GND, and measure the true stage tilt.
+
+### 15.5 Mounting and SEM metadata
+- The same sample was mounted 90 deg (16 Apr) and 180 deg (18 Apr) rotated in EBSD relative to the SEM images. Both are proper rotations,
+  never a mirror.
+- An FEI zoom series of 76 images is unreliable in its metadata:
+  - StageX/Y jumped mid-series (stage re-home), by ~430 um;
+  - ScanRotation/StageR changed in groups while the image orientation stayed the same (measured 0.0-0.6 deg; compensated);
+  - pixel size varied between images of one series (6.3-7.8 nm).
+- So: use per-image metadata, place things in um from the image centre, and verify geometry against features, not against stage
+  coordinates.
+
+### 15.6 Registration recipe (`tools\register_grid.py`)
+1. **Dots.** Take local maxima of the high-passed map above 4 robust SDs (the per-pattern brightness map of 15.1, or any image).
+2. **Dot lattice.** Fit the map's own dot lattice from nearest-neighbour vectors; this needs no prior on scale or rotation.
+3. **Orientation search.** Index the fiducials on their own lattice. Score all 8 rotations/mirrors x all integer shifts on
+   deposit/no-deposit agreement (agree - disagree - unexplained dots).
+   - Missing fiducials, an extra point or a deliberately asymmetric marker make the answer unique. A periodic grid alone does not: whole-pitch
+     shifts tie, and fitting only on dot positions picked the wrong shift and orientation here.
+   - The margin to the runner-up is reported.
+4. **Refinement.** Refine the affine by least squares on the matched dots.
+5. **Validation.** Every absent fiducial must land on a blank spot.
+
+Results:
+- 16 Apr: rot90, 153/154 present fiducials matched, RMS 0.63 px, score 163 vs 133.
+- 18 Apr: rot180, 178/190, RMS 0.79 px, 155 vs 143.
+- 0 absent fiducials with a dot in either map.
+- Same numbers as the project's own code (`HOPG:tools/ebsd_grid_coloc.py`). The SEM side (`HOPG:tools/seccm_sem_coloc.py`) uses the same
+  idea.
+
+Uses here: EBSD <-> SEM overlays, indent arrays, and the step check of 15.4.
+
+### 15.7 An independent frame check from crystal shape (bears on the 90 deg azimuth, 12.5-12.6)
+- Hexagonal Zn plates were imaged in SEM (edge directions) and indexed in EBSD (kikuchipy phi1). After registering the frames (15.6):
+  phi1 - SEM angle - mount rotation = **27.6 deg (16 Apr) and 25.9 deg (18 Apr)** (mod 60). The mounts differed by 93 deg.
+- A constant across two mounts means the relation between the scan/kikuchipy frame and the physical sample is fixed, not mount-dependent.
+  That is the "instrument convention" reading of the 90 deg azimuth in 12.5.
+- (Mod 60, the constant cannot separate a hexagon-vertex convention from a 90 deg frame rotation.)
+- For cubic Pt the same test is possible with any orientation-defined feature visible in SEM: facets, etch pits, slip or twin traces, or a
+  cleaved Si edge along <110>. Register SEM to EBSD with fiducials, then compare. This would test Rz(90) independently of the .ANG export.
+
+### 15.8 Mixed patterns: unmixing with measured neighbour references (near boundaries, inclusions, thin overlayers)
+- **Method** (`HOPG:tools/deposit_deconv.py`):
+  - flat-field and high-pass the patterns (both linear);
+  - take the mean of pure patterns on a ring 3-5 px from the site as the reference for the host phase;
+  - fit each pattern as alpha*reference + beta*simulated(second phase), and combine the beta-weighted residuals into an extracted pattern
+    of the second phase.
+- **Measured references beat simulated ones.** Against an independent truth (SEM shape of 9-11 clean plates), the agreement rose from
+  R = 0.90 with a simulated host to 0.99.
+- **Controls are essential.**
+  - Detection thresholds come from the same procedure run on host-only control pixels (99th percentile).
+  - Template crosstalk exists: host-only pixels give "second-phase" angles within 5 deg of the host angle 22-24% of the time, against 17% for
+    random angles.
+  - Sensitivity comes from injecting a synthetic second component into real patterns. An equal-weight component 5-30 deg away is found in
+    82-98% of cases; a 25% minor one in <= 29%.
+- **For hrEBSD.** Near-boundary points are masked by a pixel margin (`--ref-margin`, `near_boundary` flag) and never separated (workflow
+  section 7). Unmixing each near-boundary pattern against interior patterns of the two adjacent grains would give a **measured mixing
+  fraction per point**. That makes a principled mask (HR-EBSD cross-correlation is biased by even a few % of a second pattern) and may
+  recover points that the margin discards. Not implemented here.
+- A related recent method is iterative simulated-pattern subtraction (Cios, Winkelmann et al., arXiv:2601.14155, Jan 2026).
+
+### 15.9 Probe footprint vs step
+- Zn plates of 0.08-0.2 um^2, mapped at 0.55 x 0.45 um pixels (20 kV, 70 deg, on graphite), were detected more steeply with size than point
+  sampling predicts: less often than the hit probability below ~0.11 um^2, more often above ~0.14 um^2.
+- So each pattern integrates roughly 0.1-0.2 um around the beam position for this light-element case; a high-Z phase like Pt is smaller.
+- For hrEBSD: a 4 px `--ref-margin` at 0.27 um (1.1 um) is conservative against that scale. A measured mixing fraction (15.8) would show how
+  far mixing actually reaches.
+
+### 15.10 Statistics when correlating per-point quantities
+- Acquisition-order drift is common (SECCM: open-circuit potential rho = 0.7 with hop order). Detrend against scan order (running median)
+  before correlating.
+- Use FDR (Benjamini-Hochberg) over the family of tests.
+- Use permutation nulls for angle statistics (6-fold or 4-fold circular R).
+- Use partial correlations when a confounder (feature size) drives both quantities.
+- Report injection-test sensitivity alongside any "not detected".
+
+### 15.11 Data access
+- Elias's data: Box Drive `C:\Users\Hang\Box\Ren Lab Shared\Results and Data\Data\Elias\Zn Deposition on HOPG`. `robocopy` from Box Drive
+  copied ~2 GB in under a minute.
+- The Box connector's download links expire after 60 s and are single-use, so it is only practical for a few files.
+- Box stays read-only.
+
+### 15.12 Methods worth knowing (literature check 2026-11-10; details in the HOPG findings and the chat record)
+- **Depth.** The EBSD information depth grows with kV and shrinks with Z and with tilt. Example: at 15 kV, 70 deg, >80% of contributing
+  electrons scattered within ~40 nm (material-dependent; a textbook figure).
+  - Orientation was still measurable through ~116 nm of amorphous Si at 30 kV (Fraunhofer wedge study).
+  - A kV series (with Monte Carlo, e.g. ebsdsim's MC or CASINO, to interpret it) gives coarse depth weighting, not tomography. True depth
+    needs FIB serial sectioning or cross-section TKD.
+- **Resolution.** Low kV (5-7.5 kV) shrinks the interaction volume (~10 nm reported for steel at 7.5 kV). Energy-filtered EBSD with
+  direct electron detectors (event counting, filtering on the primary-energy window) sharpens patterns and is reported to improve
+  resolution (Della Ventura et al., Ultramicroscopy 2025).
+- **Overlapping patterns.**
+  - Dictionary indexing and spherical indexing (EMSphInx) are robust to noise and can handle overlaps near boundaries.
+  - Constrained NMF (Chauniyal et al.) and iterative subtraction (Cios et al. 2026) separate overlaps.
+- **HR-EBSD.**
+  - Integrated/global DIC (Vermeij & Hoefnagels; Ernould et al.) and simulation-based references (Alkorta et al.) avoid the
+    reference-pattern problem.
+  - Global-DIC refinement of PC and sample/detector angles (Griesbach & Kochmann, arXiv:2604.25869, 2026) targets exactly the
+    PC/tilt coupling of 12.19 and 15.2.
+- **Denoising.** Autoencoders and diffusion models restore noisy patterns. All of them can hallucinate, so validate against controls
+  before trusting orientations.
