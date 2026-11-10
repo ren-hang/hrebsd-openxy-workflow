@@ -466,6 +466,8 @@ general. Tools named `HOPG:...` live in that repo. Only `tools\register_grid.py`
 - **To check:** map one fiducial grid (TEM grid, FIB marks, an SECCM or indent array) in a typical hrEBSD session and run
   `tools\register_grid.py`; it reports both pixel sizes and the axis angle. If rows come out at 0.83x again, consider a step correction in
   GND, and measure the true stage tilt.
+- **Update (15.13):** checked with Deba's Pt hole maps and SEM images. The row scale is not a fixed instrument property: it varies between
+  sessions (0.77-1.19x), and Jan 2026 is undistorted.
 
 ### 15.5 Mounting and SEM metadata
 - The same sample was mounted 90 deg (16 Apr) and 180 deg (18 Apr) rotated in EBSD relative to the SEM images. Both are proper rotations,
@@ -566,3 +568,77 @@ Uses here: EBSD <-> SEM overlays, indent arrays, and the step check of 15.4.
     PC/tilt coupling of 12.19 and 15.2.
 - **Denoising.** Autoencoders and diffusion models restore noisy patterns. All of them can hallucinate, so validate against controls
   before trusting orientations.
+
+### 15.13 The map geometry varies per session (Deba's Pt hole maps, 2026-11-10)
+No fiducial grid has been mapped in an hrEBSD session yet, so three methods were used on existing data. The data are 45 `.ANG` maps of
+Deba's Pt foil holes (Box `G7. Deba\EBSD`, 2024-2026, copies in `inputs\Deba_hole_maps`) and 97 top-view SEM images of the holes (Box
+`G7. Deba\SEM + EDX`, copies in `inputs\Deba_hole_SEM`). The SEM images are all 0 deg tilt with tilt correction off, so their pixels are
+square on the sample.
+1. **Grain-boundary registration** (`tools\register_sem_ebsd.py`).
+   - The EBSD boundary map (neighbour misorientation, cubic, plus the unindexed hole edge) is registered to the SEM edge map with a full
+     affine: rotation and row-scale search, masked NCC for the shift, then Powell on all six parameters.
+   - The fit is repeated on map quadrants for an uncertainty, and a result counts as "reliable" only if the peak beats other rotations by
+     > 0.1 and the quadrants agree.
+   - **Self-test**: a known distortion (rows 0.83x, axes 86.3 deg, rotation 37 deg) is recovered to 0.001 / 0.02 deg.
+2. **Round features** (`tools\round_feature_check.py`): from the second moments of a round hole in IQ, the row/column pixel ratio and the
+   axis angle follow.
+   - The holes are round in SEM: major/minor 1.00-1.03 for 7 holes (Sep/Nov 2024), 1.04 (Feb 2025 hole 1), 1.07 (Jan 2025 hole 5); one
+     outlier at 1.16 (Nov 2024 hole 5).
+   - Segmentation fails where a dark grain touches the hole.
+3. **Contamination dots** left by an earlier scan, measured in SEM (`tools\scan_dot_lattice.py`, experimental): the dot lattice gives the
+   true step along both scan axes.
+
+**Jan 2026: three methods agree, no distortion.**
+
+| method | rows/columns | axis angle |
+|---|---|---|
+| registration, map 1 vs SEM 13 Jan (NCC 0.52, reliable) | 1.025 +- 0.034 | 88.6 +- 1.7 deg |
+| dot lattice, SEM 15 Jan | 1.020 | 90.0 deg |
+| holes, 2 maps | 0.98 | |
+
+The registration's pixel sizes were columns 1.238 um and rows 1.269 um, against a nominal 1.260. The dot lattice was 9.91 x 9.71 um, with
+its axes within 0.4-1.7 deg of the EBSD scan axes after the -90 deg stage rotation, so it was left by an EBSD scan on that mount.
+
+**Per-session row scale from round holes** (median per map, then per session), with the surface tilt that would produce it:
+
+| session | maps | rows/columns | surface tilt implied |
+|---|---|---|---|
+| 2026-05-06 repeat calibration | 5 | 0.77 (0.73-0.80) | 63.5 deg |
+| 2025-02-19 | 2 | 0.79 | 64.3 deg |
+| 2025-07-02 | 3 | 0.80 | 64.8 deg |
+| 2025-01-22 | 2 | 0.82 | 65.3 deg |
+| 2024-11-01, 2024-11-22, 2025-01-10, 2025-01-16, 2025-05-06, 2026-01 | 2-6 each | 0.95-1.04 | 69-71 deg |
+| 2025-01-08 | 6 | 1.07 | 71.4 deg |
+| 2024-12-06 | 2 | 1.13 | 72.4 deg |
+| 2025-04-25 | 4 | 1.19 | 73.2 deg |
+
+- The spread within a session is small (e.g. 0.73-0.80 over 5 maps of 2026-05-06), so the scale is a property of the session or mount.
+- The 2025 Zn/HOPG sessions (15.4: 0.83 / 0.85) fit the same picture.
+- Registration on the compressed 2025 sessions: see the line added below. On the first pass the coarse search assumed an undistorted map
+  and found no reliable peak there; it now also searches the row scale.
+
+**Model.**
+- **Row scale.** The scan's tilt correction assumes 70 deg. With the surface really at theta, the row step on the sample is
+  nominal x cos 70 / cos theta. That is ~5% per degree near 70 deg, so a foil sitting 4-6 deg off (tape, bending, holder) gives
+  0.8-0.85x or 1.1-1.2x.
+- **Shear.** If the stage tilt axis is rotated by phi from the scan x-axis, the tilt correction shears the map axes by about
+  sin^2(theta)/cos(theta) x phi = 2.6 phi at 70 deg. The ~3.7 deg shear of the 2025 maps corresponds to phi ~ 1.4 deg.
+- **Pattern geometry.** The same surface-tilt deviation enters the pattern geometry: alpha = 90 - sample tilt + camera elevation (15.2).
+  - For Apr 2025, the PC/tilt fits (alpha 31.4 / 31.1 deg) with the measured surface tilt (65.5 / 66.3 deg) give a camera elevation of
+    6.9 / 7.4 deg; the same within 0.5 deg.
+  - That would mean the ~11 deg found with the sample assumed at 70 deg is camera elevation plus mount tilt. **Not established**; it needs
+    the pilot below.
+- **For hrEBSD**, if the model holds:
+  1. GND needs the session's real row step.
+  2. Deba's Rcorr (11.04 deg, calibrated 2026-05-05, the day before the most compressed session) may be partly mount-specific; applied
+     to a differently mounted sample, the orientation correction could be off by the mount difference (several deg).
+  3. The sample frame of the strain/rotation results is tilted by the same amount.
+
+**Next pilot: per-session geometry calibration from data that already exist.** For sessions that have both an EBSD map with raw patterns
+and a top-view SEM image of the same area:
+1. Measure the row scale and shear (register_sem_ebsd or round features), giving theta and phi.
+2. Fit the PC and alpha on many grains (`map_pc_fit.py --free-elev`).
+3. Compute the camera elevation = alpha - 90 + theta.
+
+If it comes out constant across mounts, each session's geometry and Rcorr can be built from that constant plus the measured theta. Then
+rerun Pt(6)/(7) with session-specific corrections and compare strain and rotation.
