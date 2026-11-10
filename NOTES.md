@@ -614,8 +614,14 @@ its axes within 0.4-1.7 deg of the EBSD scan axes after the -90 deg stage rotati
 
 - The spread within a session is small (e.g. 0.73-0.80 over 5 maps of 2026-05-06), so the scale is a property of the session or mount.
 - The 2025 Zn/HOPG sessions (15.4: 0.83 / 0.85) fit the same picture.
-- Registration on the compressed 2025 sessions: see the line added below. On the first pass the coarse search assumed an undistorted map
-  and found no reliable peak there; it now also searches the row scale.
+- **Registration on a compressed session.** Feb 2025, map `Pt_hole1(1)` (19 Feb) vs SEM `hole-1` (21 Feb, stage rotated 90 deg): rows/columns
+  **0.846**, axes 89.6 deg, NCC 0.53. Boundaries and the hole rim overlay visually (`work\reg3_feb2025_h1m1\register_sem_ebsd.png`). The same
+  map's round-hole estimate is 0.81; the hole is 1.04 out of round in SEM.
+  - It is flagged not reliable only because the SEM field is narrower than the map, so no quadrant has the 60% coverage needed for an
+    uncertainty.
+  - So grain boundaries alone give 0.85 here, against 1.03 in Jan 2026: the session dependence is real, not a hole-shape artefact.
+  - The Jan 2025 hole-5 pairs did not register (partial overlap). The coarse search needs the row scale as a search dimension: without
+    it, compressed sessions gave no peak.
 
 **Model.**
 - **Row scale.** The scan's tilt correction assumes 70 deg. With the surface really at theta, the row step on the sample is
