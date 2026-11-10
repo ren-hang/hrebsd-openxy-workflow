@@ -648,3 +648,186 @@ and a top-view SEM image of the same area:
 
 If it comes out constant across mounts, each session's geometry and Rcorr can be built from that constant plus the measured theta. Then
 rerun Pt(6)/(7) with session-specific corrections and compare strain and rotation.
+
+## 16. Grain file in the wrong row order: OpenXY grain boundaries flipped (Deba's Pt_map1_ORR, 2026-11-10)
+Deba ran OpenXY (GUI, lab protocol) on Box `G7. Deba\EBSD\2026\05-09-2026\Pt_map1_ORR`: map `Pt(3)`, 128 x 84, step 0.468 um, PC
+16.31/6.86/19.09 (her message). Local copy without the 11.6 GB .pat: `inputs\Pt_map1_ORR_20260509`; her figures are in
+`Open_XY_data(_v2).pptx` there. Symptom: "GND and strain map, but the GB is not properly assigned".
+
+**How OpenXY uses grain IDs** (BYU code, `work\OpenXY_BYU\Code`):
+- `GrainMethod = 'Grain File'` (default for .ang): `GetOIMGrainVals` takes column 9 (grain ID) and 11 (phase) **by row number**; the grain
+  file's x,y and Euler columns are never used. The file must be `<angname>.txt` beside the .ang, or picked by hand.
+- One reference pattern per grain ID. Points of another real grain inside the same ID are correlated against the wrong grain: "poor data".
+- GND (`DislocationDensityCalculate` l. 346-352): a point is zeroed, i.e. **black** in `DislocationDensityPlot` (colormap `[0 0 0; parula]`),
+  if its grain ID differs from the point above or right, or `misang` > MaxMisorientation. `misang` uses the HR-EBSD-updated orientations,
+  which follow the reference, so it stays small across a real boundary inside one ID. Such a boundary is unmasked: saturated **yellow**.
+
+**Diagnosis.** The grain IDs OpenXY used are the real grain map (from the .ANG, cubic, 5 deg) **flipped top-to-bottom**:
+- GND map: 221/221 pixels on the boundaries of the flipped map are black, against 5% elsewhere (left-right flip 9%, 180 deg rotation 2%).
+  The real boundaries are 36% saturated yellow, against 0.7% elsewhere.
+- Strain maps: 44% of the points have a grain ID that puts them with another real grain's reference. 99.3% of those are white ("poor
+  data"), against 0.5% of the rest. The black GB lines in the strain figures are the flipped boundaries.
+- Figure: `work\gb_pt3\gb_flip_evidence.png`; numbers `work\gb_pt3\final_check.json`.
+
+**Cause: the lab MTEX grain-file step** (`analysisScript_share_3_modified_chatgpt.m`, dated 2026-05-11, with `export_GrainFile.m`).
+- `EBSD.load(..., 'convertSpatial2EulerReferenceFrame', 'setting 2')` plus `rotate(..., rotation.byAxisAngle(zvector, 90*degree),
+  'keepEuler')` ("found it wasn't plotting correctly") leaves y = -y(file), x unchanged.
+- `export_GrainFile` sorts the rows by y ascending, so it writes the **bottom row first**. Its y column runs -38.85 ... 0, which is the
+  visible tell.
+- Reproduced here with MTEX 6.1.1 on the local copy (`work\gb_pt3\mtex_export`): the first data row is exactly .ANG row 83, column 0.
+  Read through OpenXY's own `ImportScanInfo`, the IDs are the real map flipped.
+- The exporter's own `'flipud'` flag does not change the order.
+- The 2024 practice grain file (`PtGrain3.txt` vs `Pt_plasticstrain.ang`) is in the right order, so the flip came with the 2026 script.
+- The exporter also writes an empty line after the header, and OpenXY's `GetFileData` stops on it (`tline(1)` of an empty line). Deba's
+  file must have been edited or written differently.
+
+**Fix.**
+1. `tools\check_grain_file.py --ang A.ang --grain Platinum.txt --fix A.txt --phase Platinum`.
+   - It tests the 8 grid orders (x or y first, flips) by Euler angles, exact or after one constant rotation, so a corrected .ang also works.
+   - It reports the grain IDs as OpenXY will read them against the .ang misorientations (reproduced file: 99% of the > 5 deg neighbour
+     pairs share an ID).
+   - With `--fix` it writes the rows in the .ang order, with the .ang's x,y and no empty line.
+   - Exit 0 = same order.
+2. Or in `export_GrainFile.m`: `A3 = sortrows(A2, {'y', 'x'}, {'descend', 'ascend'});`. This passes the check for the current load options
+   only, so run the check anyway.
+3. `hrebsd.py prepare` writes its own grain file in the .ANG order and is not affected.
+
+Fixed file for this map (MTEX calcGrains 5 deg, 34 IDs, read by OpenXY = the real grains): `work\gb_pt3\mtex_export\Platinum_fixed.txt`.
+
+**Rerun through `hrebsd.py`** (`inputs\Pt_map1_ORR_20260509` with the local .pat, `--pc 16.31 6.86 19.09 --gnd`; `work\hrebsd_Pt3`).
+- The grain file comes from the .pat/.ANG: 34 grains, of which 3 are large.
+- 98.3% of the points are usable; Deba's run had 44% "poor data".
+- Masked GND pixels and boundary lines now sit on the real boundaries. Side by side with her figures: `work\hrebsd_Pt3\compare_with_deba.png`.
+- Not comparable component by component: the orientation correction differs (Rz(90) Rcorr(11.04) here, 10.97 deg about X in hers).
+- The ~5 deg boundary at the bottom left stays inside one grain at the 5 deg tolerance, so GND is computed across it (in both runs).
+
+**Side findings.**
+- **OpenXY Find Grains uses hexagonal symmetry for cubic materials.** `findgrains.m` tests `if lattice==1`, but `CalcGrainID` passes the
+  material's lattice string, and `'cubic'==1` is all false, so cubic grains are found with the 12 hexagonal operators.
+  - On Pt(3) the result equals the correct segmentation (34 grains; boundaries 12-45 deg).
+  - In general it can merge boundaries near 30 deg <100>, or split a grain where the Euler representation jumps.
+  - Use a checked grain file instead.
+- **Deba's corrected .ang has no 90 deg azimuth.** `EBSD_map\Pt_11deg_corrected.ang` (MTEX export, same row order as the instrument file)
+  is the instrument orientations rotated by 10.97 deg about sample X (left multiplication, median spread 0.03 deg).
+  - There is no 90 deg azimuth; `hrebsd.py` applies Rz(90) Rcorr(11.04), §12.6.
+  - Which correction she intends is to be confirmed.
+- **Which map does 16.31/6.86/19.09 belong to?**
+  - Deba gives it for this 128 x 84 map, which matches the 128 x 84 entry of the session report (§12 data list).
+  - The same numbers were confirmed for Pt(6) on 2026-11-04, and they are also the 2024 protocol practice values.
+  - The pattern fit for Pt(6) gave 15.84/6.96/19.29 (§12.20).
+  - To be confirmed with Deba.
+- Decision (user, 2026-11-10): in routine work, whenever a pattern file exists, rely on it. Run `hrebsd.py` end to end from the .pat/.ANG
+  and do not bring in grain files made elsewhere.
+
+## 17. Pattern mixing at grain boundaries, measured (pilot, Pt(6)/Pt(7), 2026-11-10)
+Question: does the routine handle GND near boundaries with two-grain patterns? It does not. Its only protections are:
+- references are taken >= 4 px from a boundary;
+- OpenXY zeroes GND across a grain-ID change;
+- points within 4 px are flagged.
+
+The pilot measures the mixing (step 1, `tools\gb_mixing.py`) and then what mixing does to OpenXY (step 2, `tools\make_mix_map.py` +
+`tools\mix_bias.py`).
+
+**Step 1: measured mixing fraction** (`gb_mixing.py --src work\hrebsd_Pt6gnd --stem Pt6gnd --out work\gbmix_Pt6`).
+- **Method.** Patterns are binned 4x, flat-fielded by the map mean and band-passed (sigma 1-8 binned px), all linear. Each pattern near the
+  boundary between two large grains is least-squares fitted as a*R_1 + b*R_2.
+  - R_1 and R_2 are the means of indexed patterns 5-8 px inside each grain, within 8 px of the point (16 px if too few).
+  - f = b/(a+b) is the fraction of the other grain; the residual is the unexplained part of the pattern.
+- **Controls and calibration.** Points 10-14 px from the other grain set the thresholds: 99th percentile of f and of the residual.
+  Calibration injects real interior patterns of the other grain into real interior patterns.
+- **The two large grains never touch.** In both maps there is a 1-2 px seam of not-indexed points and one-pixel "grains" (Pt(6): 191 seam
+  pixels; Pt(6) "grains" 2, 11, 23 are mostly CI <= 0 points). So the boundary is where the instrument already failed.
+
+| | Pt(6) (step 0.273 um, grains 1/3, 34 deg) | Pt(7) (0.328 um, grains 1/4, 15.5 deg) |
+|---|---|---|
+| controls: f median / 99th pct | -0.007 / 0.022 | 0.007 / 0.052 |
+| residual 99th pct (interior median 0.02-0.04) | 0.058 | 0.096 |
+| calibration, injected 0.05 / 0.10 / 0.20 -> recovered median | 0.038 / 0.088 / 0.186 | 0.053 / 0.103 / 0.201 |
+| unreliable (f or residual above threshold), by d_edge 1, 2, 3, 4 px: lower-id grain | 57 / 3 / 0 / 0 % | 0 / 0 / 0 / 0 % |
+| same, higher-id grain | 98 / 54 / 11 / 4 % | 97 / 0 / 0 / 0 % |
+| grain points within 4 px of the seam / of them clean | 469 / 283 (60 %) | 381 / 285 (75 %) |
+
+(d_edge = 1 for the last indexed pixel of a grain, 2 the next one in.)
+
+- **Mixing is one-sided.** Across Pt(6) the higher-id side has a tail (median other-grain fraction 0.07, 0.025, 0.001 at d_edge 1-3),
+  the lower side has none beyond d_edge 1. Pt(7) has nothing on grain 1's side, even at d_edge 1.
+  - Possible causes: an inclined boundary plane (the beam sees the neighbour below the surface on one side) or a down-tilt tail of the
+    backscatter footprint. Not separated here.
+- **Pt(7) grain-4 edge pixels are not a clean mixture.** They are indexed as grain 4 (0.18 deg from it), but their patterns fit grain 1's
+  reference better (f 0.77-0.90) with residual 0.36 (interior 0.02). Something else is in those patterns (topography at the boundary of an
+  ORR-tested foil, or a thin feature); the residual test catches them.
+- **For the routine.** Contamination reaches 1-3 px on one side, and 0-1 px on the other. Of the points the fixed 4 px margin removes,
+  60 % (Pt(6)) and 75 % (Pt(7)) are clean. Only on Pt(6)'s grain 3 is the margin about the right width.
+  - The measured mask (`mixing.npz` `unreliable`: seam, f > threshold, or residual > threshold) is the principled replacement, once step 2
+    shows which f matters for OpenXY.
+
+**Step 2a: OpenXY error against a known mixing fraction.**
+- **Map.** `make_mix_map.py --levels 0 0.01 0.02 0.05 0.1 0.2 0.3` builds a strain-free copy of each map. Every usable pattern of the two
+  large grains becomes one deep-interior pattern of that grain, plus measured pixel noise, plus f times one interior pattern of the other
+  grain, with f in column bands.
+  - Mixed points get IQ = CI = 0, Fit = 99, so the reference stays pure.
+  - Run by `hrebsd.py --stage run/post` (single worker, `--nproc 1`, which needs no parallel pool); scored by `mix_bias.py` on the
+    rebuilt points only. Truth is zero, so every number is an error.
+
+| map, grain | f = 0 (noise) | 0.02 | 0.05 | 0.10 | 0.20 | 0.30 |
+|---|---|---|---|---|---|---|
+| Pt(6) grain 1: rotation (deg) / strain norm | 0.0042 / 1.2e-4 | 0.0054 / 1.5e-4 | 0.0104 / 2.9e-4 | 0.019 / 5.3e-4 | 0.039 / 1.1e-3 | 0.065 / 1.9e-3 |
+| Pt(6) grain 3 | 0.0037 / 1.0e-4 | 0.0032 / 0.9e-4 | 0.0042 / 1.3e-4 | 0.012 / 3.7e-4 | 0.031 / 0.9e-3 | 0.053 / 1.5e-3 |
+| Pt(7) grain 1 | 0.0039 / 1.1e-4 | 0.0064 / 1.8e-4 | 0.0129 / 3.7e-4 | 0.025 / 6.8e-4 | 0.051 / 1.4e-3 | 0.083 / 2.3e-3 |
+| Pt(7) grain 4 | 0.0048 / 1.3e-4 | 0.0074 / 2.0e-4 | 0.0154 / 4.1e-4 | 0.030 / 8.0e-4 | 0.064 / 1.7e-3 | 0.104 / 2.8e-3 |
+
+(medians; 165-179 points per cell)
+- The error is **systematic**: the norm of the mean rotation vector equals the median rotation from f = 0.05 on. So a mixing gradient
+  across a boundary becomes a spurious rotation gradient, i.e. fake GND.
+- It grows about linearly: 0.2-0.35 deg of rotation and 5-9e-3 of strain norm per unit f.
+- Twice the noise floor is reached at f = 0.05 in three of the four grains and at 0.10 in the fourth. At 0.02 the error is 0.9-1.6x the
+  noise floor.
+- **Working threshold: f > 0.03 is harmful.** The detection limit of step 1 (0.022 Pt(6), 0.052 Pt(7)) is at or just above it; Pt(7)'s
+  controls are noisier.
+
+**Step 2b: the measured mixing on a strain-free copy of each boundary, with GND.**
+- `make_mix_map.py --measured work\gbmix_PtN\mixing.npz` plants each pixel's measured fraction (negative values clipped to 0). Seam pixels
+  keep their real patterns. The map is run with `--gnd` and scored with `mix_bias.py --mixing ... --compare` against the real run and the
+  earlier null map (no mixing).
+- Results: GND5 median (m^-2) by d_edge; truth is 0, so the null and the interior show the noise floor.
+
+| | d_edge 1 | 2 | 3 | interior (> 8 px) |
+|---|---|---|---|---|
+| Pt(6) strain-free + measured mixing | 7.6e12 | 6.2e12 | 6.2e12 | 6.2e12 |
+| Pt(6) null (no mixing) | 6.3e12 | 6.0e12 | 6.2e12 | 6.4e12 |
+| Pt(6) real | 1.42e13 | 1.14e13 | 1.05e13 | 1.16e13 |
+| Pt(7) strain-free + measured mixing | **9.5e13** | 6.4e12 | 6.5e12 | 5.0e12 |
+| Pt(7) null | 6.9e12 | 4.9e12 | 6.1e12 | 5.1e12 |
+| Pt(7) real | **7.9e13** | 2.0e13 | 1.4e13 | 9.5e12 |
+
+- **Pt(6):** mixing alone adds +1.3e12 at d_edge 1 (rotation error 0.0066 vs 0.0041 deg interior) and nothing further in.
+- **Pt(7):** mixing alone produces a first-pixel GND of 9.5e13, so it accounts for the whole first-pixel spike of the real map (7.9e13);
+  the error at those points reaches 0.17 deg / 4.6e-3 (p90).
+- Mixing does not produce the real map's raised values at d_edge 2-3 (2.0e13, 1.4e13 vs 9.5e12 interior). Their cause is not established
+  here (values not interpreted).
+
+**Effect of the measured mask on the real GND** (GND5 median of points kept / removed by `unreliable`; the 4 px margin removes all of them):
+
+| | d_edge 1 kept / removed | d_edge 2 kept / removed | d_edge 3 kept / removed | interior |
+|---|---|---|---|---|
+| Pt(6) | 1.05e13 (75) / 1.79e13 (108) | 1.06e13 (139) / 1.73e13 (27) | 1.05e13 (139) / 1.78e13 (5) | 1.16e13 |
+| Pt(7) | 1.47e13 (27) / **2.1e14** (33) | 2.03e13 (91) / - | 1.44e13 (93) / - | 9.5e12 |
+| Pt(3) (step 0.468 um, `work\gbmix_Pt3`) | 1.34e13 (60) / 2.35e13 (176) | 1.07e13 (202) / 1.49e13 (97) | 8.8e12 (253) / 1.04e13 (42) | 6.5e12 |
+
+- The mask removes the mixing artefacts and keeps 60-75% of the margin's points; in Pt(6) the kept points match the interior.
+- **Pt(3):**
+  - Mixing reaches 2-3 px into grains 1 and 3 (unreliable 83/34/9% and 100/78/32% at d_edge 1-3) and less into grain 6. Calibration:
+    0.05 -> 0.055, 0.10 -> 0.106.
+  - Its kept near-boundary points still rise towards the boundary (1.34e13 / 1.07e13 / 8.8e12 at d_edge 1-3, against 6.5e12 inside).
+    Not checked yet with a strain-free run.
+  - The residual test also flags 13-20% of grain 6's points at d_edge 2-6, probably near its internal ~5 deg boundary (the local
+    reference lies across it). The mask is conservative there.
+- **Conclusion.** The routine should replace the fixed 4 px margin by the measured mask: seam, f > ~0.03 (or the map's control 99th
+  percentile if higher), or residual above the control 99th percentile.
+  - It removes exactly the points mixing corrupts (up to 2e14 fake GND at a 15 deg boundary) and keeps most of the rest.
+  - It runs in ~16 s for a 64 x 42 map from the prepared work dir; no simulation is needed in routine use.
+- **Not done:**
+  - wiring it into `hrebsd.py post`;
+  - a strain-free measured-mixing run for Pt(3);
+  - subtraction of the minor pattern (to recover the masked points);
+  - more boundary types (twins, low-angle).
